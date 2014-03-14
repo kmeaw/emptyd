@@ -1,8 +1,13 @@
 #!/usr/bin/env ruby
 # vim: ai:ts=2:sw=2:et:syntax=ruby
 
-$:.unshift "../lib"
-require "../lib/emptyd"
+lp = File.expand_path(File.join(File.dirname(__FILE__), "..", "lib"))
+
+unless $LOAD_PATH.include?(lp)
+  $LOAD_PATH.unshift(lp)
+end
+
+require "emptyd"
 require 'evma_httpserver'
 
 class MyHttpServer < EM::Connection
