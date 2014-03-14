@@ -1,0 +1,72 @@
+#!/usr/bin/env ruby
+# vim: ai:ts=2:sw=2:et:syntax=ruby
+
+$:.unshift "../lib"
+require "../lib/emptyd"
+require 'evma_httpserver'
+
+class MyHttpServer < EM::Connection
+  include EM::HttpServer
+
+  def post_init
+    super
+    no_environment_strings
+  end
+
+  def process_http_request
+    done = false
+    port, ip = Socket.unpack_sockaddr_in(get_peername)
+    Emptyd::LOG.info "#{ip}:#{port} #{@http_request_method} #{@http_path_info} #{@http_post_content.inspect}"
+
+    response = EM::DelegatedHttpResponse.new(self)
+    response.status = 200
+    response.content_type 'application/json'
+    response.content = JSON.dump({ :okay => true })
+
+    begin
+      case @http_path_info
+      when %r{/session/new}
+        session = Emptyd::Session.new JSON.load(@http_post_content)
+        response.content = JSON.dump({id: session.uuid})
+      when %r{/session/(.*)/run}
+        Emptyd::Session[$1].run @http_post_content
+      when %r{/session/(.*)/read}
+        session = Emptyd::Session[$1]
+        if session.dead? and session.queue.empty?
+          session.destroy!
+          response.content = JSON.dump([nil,:dead,nil])
+        else
+          return session.queue.pop do |data|
+            response.content = JSON.dump(data)
+            response.send_response
+          end
+        end
+      when %r{/session/(.*)/terminate}
+        session = Emptyd::Session[$1]
+        session.terminate @http_post_content
+      when %r{/session/(.*)}
+        session = Emptyd::Session[$1]
+        case @http_request_method
+        when "GET"
+          response.content = JSON.dump(session.status)
+        when "DELETE"
+          session.destroy
+        end
+      when %r{/session}
+        response.content = JSON.dump(Emptyd::Session.ids)
+      else
+        raise KeyError
+      end
+    rescue KeyError
+      response.content = JSON.dump({:okay => false, :error => :not_found})
+      response.status = 404
+    end
+    response.send_response
+  end
+end
+
+EM.run do
+  EM.start_server '0.0.0.0', 8080, MyHttpServer
+  Emptyd::LOG.info "Server started on port 8080."
+end
+
