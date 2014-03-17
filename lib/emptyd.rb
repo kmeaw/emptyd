@@ -86,17 +86,8 @@ module Emptyd
             @@count[self.key] = self
             LOG.debug "Created new conn: #{key}, quota = #{@@count.size}"
             EM::Ssh.start(@host, @user, user_known_hosts_file: []) do |conn|
-              conn.errback do |err|
-                @@count.delete self.key
-                @conn = nil
-                STDERR.puts "Connection to #{@key} is broken: #{err}"
-                @error = err
-                @failed_at = Time.now
-                @connecting = false
-                @run_queue.each do |cmd,session,callback|
-                  callback.call self, :error
-                end
-              end
+              conn.errback { |err| errback err }
+              conn.on(:closed) { errback "closed" }
               conn.callback do |ssh|
                 @conn = ssh
                 @error = nil
@@ -134,6 +125,25 @@ module Emptyd
       EM.next_tick starter
     end
 
+    def errback err
+      @@count.delete self.key
+      had_valid_conn = !!@conn
+      @conn = nil
+      STDERR.puts "Connection to #{@key} is broken: #{err}"
+      @error = err
+      @failed_at = Time.now
+      @connecting = false
+      if had_valid_conn
+        @sessions.each do |session|
+          session.queue.push [self, :error, nil]
+        end
+      else
+        @run_queue.each do |cmd,session,callback|
+          callback.call self, :error
+        end
+      end
+    end
+
     def bind(session)
       raise IOError, "already bound" if @sessions.include? session
       @sessions << session
@@ -151,36 +161,56 @@ module Emptyd
         return
       end
 
-      @conn.open_channel do |ch|
-        ch.exec cmd do |ch, success|
-          callback.call self, :init, ch
+      setup = proc do |ch|
+        callback.call self, :init, ch
 
-          STDERR.puts "#{h}: exec failed: #{cmd}" unless success
-          ch.on_data do |c, data|
-            EM.next_tick do
-              @updated_at = Time.now
-              session.queue.push [@key,nil,data]
-            end
-          end
-
-          ch.on_extended_data do |c, type, data|
-            EM.next_tick do
-              @updated_at = Time.now
-              session.queue.push [@key,type,data]
-              LOG.debug [type,data]
-            end
-          end
-
-          ch.on_request "exit-status" do |ch, data|
-            EM.next_tick do
-              @updated_at = Time.now
-              session.queue.push [@key,:exit,data.read_long]
-            end
-          end
-
-          ch.on_close do
+        ch.on_data do |c, data|
+          EM.next_tick do
             @updated_at = Time.now
-            callback.call self, :close
+            session.queue.push [@key,nil,data]
+          end
+        end
+
+        ch.on_extended_data do |c, type, data|
+          EM.next_tick do
+            @updated_at = Time.now
+            session.queue.push [@key,type,data]
+            LOG.debug [type,data]
+          end
+        end
+
+        ch.on_request "exit-status" do |ch, data|
+          EM.next_tick do
+            @updated_at = Time.now
+            session.queue.push [@key,:exit,data.read_long]
+          end
+        end
+
+        ch.on_close do
+          @updated_at = Time.now
+          p "closed"
+          callback.call self, :close
+        end
+
+        ch.on_open_failed do |ch, code, desc|
+          EM.next_tick do
+            callback.call self, :error, desc
+          end
+        end
+      end
+
+      @conn.open_channel do |ch|
+        if session.interactive?
+          ch.request_pty do |ch, success|
+            ch.exec cmd do |ch, success|
+              STDERR.puts "exec failed: #{cmd}" unless success
+              setup[ch]
+            end
+          end
+        else
+          ch.exec cmd do |ch, success|
+            STDERR.puts "exec failed: #{cmd}" unless success
+            setup[ch]
           end
         end
       end
@@ -215,7 +245,13 @@ module Emptyd
       @@sessions[uuid] or raise KeyError, "no such session"
     end
 
-    def initialize keys, &callback
+    def interactive?
+      @interactive
+    end
+
+    def initialize options, &callback
+      keys = options[:keys]
+      @interactive = !!options[:interactive]
       @uuid = SecureRandom.uuid
       @@sessions[@uuid] = self
       @keys = keys
@@ -278,6 +314,14 @@ module Emptyd
       }
     end
 
+    def << data
+      @running.each do |k,v|
+        if v.respond_to? :send_data
+          v.send_data data
+        end
+      end
+    end
+
     def terminate key
       chan = @running[key]
       conn = @connections[key]
@@ -301,7 +345,7 @@ module Emptyd
         when :close, :error
           h.unbind self unless @dead or not @connections.include? h.key
           @connections.delete h.key
-          @queue.push [h.key,:dead,nil] if e == :error
+          @queue.push [h.key,:dead,c] if e == :error
           @queue.push [h.key,:done,nil]
           @running.delete h.key
           if done?
