@@ -31,7 +31,7 @@ class MyHttpServer < EM::Connection
     begin
       case @http_path_info
       when %r{/session/new}
-        session = Emptyd::Session.new JSON.load(@http_post_content)
+        session = Emptyd::Session.new JSON.parse(@http_post_content, :symbolize_names => true)
         response.content = JSON.dump({id: session.uuid})
       when %r{/session/(.*)/run}
         Emptyd::Session[$1].run @http_post_content
@@ -46,6 +46,9 @@ class MyHttpServer < EM::Connection
             response.send_response
           end
         end
+      when %r{/session/(.*)/write}
+        session = Emptyd::Session[$1]
+        session << @http_post_content
       when %r{/session/(.*)/terminate}
         session = Emptyd::Session[$1]
         session.terminate @http_post_content
@@ -70,8 +73,22 @@ class MyHttpServer < EM::Connection
   end
 end
 
+CONFIG = {
+  :server => "::1",
+  :server_port => 53353
+}
+
+%w{.emptyd.conf .empty.conf}.map{|name| File.expand_path("~/#{name}")}.each do |name|
+  next unless File.exist? name
+  File.open(name) do |file|
+    CONFIG.merge!(JSON.parse(file, :symbolize_names => true)) do |k, x, y| 
+      x.respond_to?(:merge) ? x.merge(y) : y
+    end
+  end
+end
+
 EM.run do
-  EM.start_server '0.0.0.0', 8080, MyHttpServer
-  Emptyd::LOG.info "Server started on port 8080."
+  EM.start_server CONFIG[:server], CONFIG[:server_port], MyHttpServer
+  Emptyd::LOG.info "Server started on #{CONFIG[:server]}, port #{CONFIG[:server_port]}."
 end
 
