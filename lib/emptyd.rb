@@ -7,9 +7,6 @@ require 'securerandom'
 require 'json'
 
 module Emptyd
-  $0 = "emptyd"
-  LOG = Logger.new(STDERR)
-
   class Connection
     attr_reader :key, :updated_at, :failed_at, :error
     EXPIRE_INTERVAL = 600 # 10min
@@ -18,13 +15,14 @@ module Emptyd
     @@connections = {}
     @@count = {}
 
-    def self.[](key)
-      @@connections[key] or Connection.new(key)
+    def self.[](key, logger)
+      @@connections[key] or Connection.new(key, logger)
     end
 
-    def initialize(key)
+    def initialize(key, logger)
       raise IOError, "already registered" if @@connections[key]
       @key = key
+      @logger = logger
       @sessions = []
       @user, @host = key.split('@', 2)
       @user, @host = "root", @user if @host.nil?
@@ -50,7 +48,7 @@ module Emptyd
           conn.close
         end.resume
       end
-      LOG.debug "Destroying connection #{@key}"
+      @logger.debug "Destroying connection #{@key}"
     end
 
     def start
@@ -63,7 +61,7 @@ module Emptyd
           if c
             c.destroy
           else
-            LOG.debug "pressure: no free connections: #{@@count.keys}"
+            @logger.debug "pressure: no free connections: #{@@count.keys}"
           end
         end
       end
@@ -72,19 +70,19 @@ module Emptyd
         begin
           pressure[]
           if @@count.size >= MAX_CONNECTIONS
-            LOG.debug "Quota exceeded by #{@key}: #{@@count.size}"
+            @logger.debug "Quota exceeded by #{@key}: #{@@count.size}"
             @start_timer = EM::PeriodicTimer.new(rand(1..10)) do
               pressure[]
               if @@count.size < MAX_CONNECTIONS
                 @start_timer.cancel
                 EM.next_tick starter
               else
-                LOG.debug "No more connection quota, deferring #{@key}..."
+                @logger.debug "No more connection quota, deferring #{@key}..."
               end
             end
           else
             @@count[self.key] = self
-            LOG.debug "Created new conn: #{key}, quota = #{@@count.size}"
+            @logger.debug "Created new conn: #{key}, quota = #{@@count.size}"
             EM::Ssh.start(@host, @user, user_known_hosts_file: []) do |conn|
               conn.errback { |err| errback err }
               conn.on(:closed) { errback "closed" }
@@ -96,7 +94,7 @@ module Emptyd
                 @connecting = false
                 @run_queue.each do |cmd,session,callback|
                   if session.dead?
-                    LOG.debug "Dropping pending run request from a dead session"
+                    @logger.debug "Dropping pending run request from a dead session"
                     @error = "session is dead"
                   else
                     EM.next_tick { run cmd, session, &callback }
@@ -175,7 +173,7 @@ module Emptyd
           EM.next_tick do
             @updated_at = Time.now
             session.queue.push [@key,type,data]
-            LOG.debug [type,data]
+            @logger.debug [type,data]
           end
         end
 
@@ -234,7 +232,7 @@ module Emptyd
   end
 
   class Session
-    attr_reader :uuid, :queue
+    attr_reader :uuid, :queue, :logger
     @@sessions = {}
 
     def self.ids
@@ -252,10 +250,11 @@ module Emptyd
     def initialize options, &callback
       keys = options[:keys]
       @interactive = !!options[:interactive]
+      @logger = options[:logger]
       @uuid = SecureRandom.uuid
       @@sessions[@uuid] = self
       @keys = keys
-      @connections = Hash[keys.map{|h| [h, Connection[h]]}]
+      @connections = Hash[keys.map{|h| [h, Connection[h, @logger]]}]
       @connections.each_value{|h| h.bind self}
       @queue = EM::Queue.new
       @running = {}
@@ -264,7 +263,7 @@ module Emptyd
     end
 
     def destroy
-      LOG.debug "Destroying session #{@uuid}"
+      @logger.debug "Destroying session #{@uuid}"
       p @running.map{|h,v| [h, v.class.name]}
       @running.each do |h,v| 
         if v.respond_to? :close
@@ -337,7 +336,7 @@ module Emptyd
 
     def callback(h,e,c=nil)
       EM.next_tick do
-        LOG.debug [h.key,e,c.nil?]
+        @logger.debug [h.key,e,c.nil?]
         case e
         when :init
           @queue.push [h.key,:start,nil]
@@ -350,12 +349,12 @@ module Emptyd
           @running.delete h.key
           if done?
             @queue.push [nil,:done,nil] 
-            LOG.debug "run is done."
+            @logger.debug "run is done."
           else
-            LOG.debug "#{@running.size} connections pending"
+            @logger.debug "#{@running.size} connections pending"
           end
         else
-          LOG.error "Session#run: unexpected callback #{e}"
+          @logger.error "Session#run: unexpected callback #{e}"
         end
       end
     end
