@@ -133,11 +133,11 @@ module Emptyd
       @connecting = false
       if had_valid_conn
         @sessions.each do |session|
-          session.queue.push [self, :error, nil]
+          session.queue.push [self, :error, @error]
         end
       else
         @run_queue.each do |cmd,session,callback|
-          callback.call self, :error
+          callback.call self, :error, @error
         end
       end
     end
@@ -186,7 +186,6 @@ module Emptyd
 
         ch.on_close do
           @updated_at = Time.now
-          p "closed"
           callback.call self, :close
         end
 
@@ -264,10 +263,10 @@ module Emptyd
 
     def destroy
       @logger.debug "Destroying session #{@uuid}"
-      p @running.map{|h,v| [h, v.class.name]}
+      @logger.debug @running.map{|h,v| [h, v.class.name]}
       @running.each do |h,v| 
         if v.respond_to? :close
-          p "Closing channel for #{h}"
+          @logger.debug "Closing channel for #{h}"
           v.close
         end
       end
@@ -294,6 +293,7 @@ module Emptyd
       dead = @connections.values.select(&:dead?)
       alive = @connections.values.reject(&:dead?)
       @queue.push [nil,:dead,dead.map(&:key)]
+      @queue.push [nil,:done,nil] if alive.empty?
       alive.each { |h| @running[h.key] = true }
       alive.each do |h|
         h.run(cmd, self) { |h,e,c| callback h,e,c }
