@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # vim: ai:ts=2:sw=2:et:syntax=ruby
 
-lp = File.expand_path(File.join(File.dirname(__FILE__), "..", "lib"))
+lp = File.expand_path(File.join(File.dirname(File.realpath(__FILE__)), "..", "lib"))
 
 unless $LOAD_PATH.include?(lp)
   $LOAD_PATH.unshift(lp)
