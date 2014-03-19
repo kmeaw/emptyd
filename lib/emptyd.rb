@@ -1,10 +1,12 @@
 # vim: ai:ts=2:sw=2:et:syntax=ruby
 require "emptyd/version"
 
+require 'eventmachine-le'
 require 'fiber'
 require 'em-ssh'
 require 'securerandom'
 require 'json'
+require 'em-udns'
 
 module Emptyd
   class Connection
@@ -14,6 +16,7 @@ module Emptyd
     HAPPY_RATIO = 0.5
     @@connections = {}
     @@count = {}
+    @@dns = nil
 
     def self.[](key, logger)
       @@connections[key] or Connection.new(key, logger)
@@ -55,6 +58,11 @@ module Emptyd
       return if @conn or @connecting
       @connecting = true
 
+      unless @@dns
+        @@dns = EM::Udns::Resolver.new
+        EM::Udns.run @@dns
+      end
+
       pressure = proc do
         if @@count.size >= MAX_CONNECTIONS # pressure
           c = @@count.select{|k,c| c.free?}.values.sample
@@ -85,7 +93,7 @@ module Emptyd
             @logger.debug "Created new conn: #{key}, quota = #{@@count.size}"
             options = { :user_known_hosts_file => [] }
             options[:password] = $PASSWORD if $PASSWORD
-            EM::Ssh.start(@host, @user, options) do |conn|
+            EM::Ssh.start(@ip, @user, options) do |conn|
               conn.errback { |err| errback err }
               conn.on(:closed) { errback "closed" }
               conn.callback do |ssh|
@@ -122,7 +130,36 @@ module Emptyd
         end
       end
 
-      EM.next_tick starter
+      resfail = proc do |err|
+        @error = err
+        @failed_at = Time.now
+        EM::Timer.new(rand(1..10)) do
+          @start_timer.cancel
+          EM.next_tick resolver
+        end
+      end
+
+      resolver = proc do
+        query = @@dns.submit_AAAA @host
+        query.callback do |result|
+          @ip = result.sample
+          starter[]
+        end
+        query.errback do |err|
+          if err == :dns_error_nodata
+            query = @@dns.submit_A @host
+            query.callback do |result|
+              @ip = result.sample
+              starter[]
+            end
+            query.errback { |err| resfail[err] }
+          else
+            resfail[]
+          end
+        end
+      end
+
+      EM.next_tick resolver
     end
 
     def errback err
