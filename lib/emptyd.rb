@@ -12,7 +12,7 @@ module Emptyd
   class Connection
     attr_reader :key, :updated_at, :failed_at, :error
     EXPIRE_INTERVAL = 600 # 10min
-    MAX_CONNECTIONS = 30
+    MAX_CONNECTIONS = 100
     HAPPY_RATIO = 0.5
     @@connections = {}
     @@count = {}
@@ -130,31 +130,33 @@ module Emptyd
         end
       end
 
+      resolver = nil
+
       resfail = proc do |err|
         @error = err
+        @logger.error "DNS Error: #{err}"
         @failed_at = Time.now
         EM::Timer.new(rand(1..10)) do
-          @start_timer.cancel
           EM.next_tick resolver
         end
       end
 
       resolver = proc do
-        query = @@dns.submit_AAAA @host
+        query = @@dns.submit_A @host
         query.callback do |result|
           @ip = result.sample
           starter[]
         end
         query.errback do |err|
           if err == :dns_error_nodata
-            query = @@dns.submit_A @host
+            query = @@dns.submit_AAAA @host
             query.callback do |result|
               @ip = result.sample
               starter[]
             end
             query.errback { |err| resfail[err] }
           else
-            resfail[]
+            resfail[err]
           end
         end
       end
