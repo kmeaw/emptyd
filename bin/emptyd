@@ -52,6 +52,9 @@ class MyHttpServer < EM::Connection
             response.send_response
           end
         end
+      when %r{/session/(.*)/write/(.*)}
+        session = Emptyd::Session[$1]
+        session.write $2, @http_post_content
       when %r{/session/(.*)/write}
         session = Emptyd::Session[$1]
         session << @http_post_content
@@ -92,6 +95,9 @@ CONFIG = {
     end
   end
 end
+
+# XXX: We need a shared environment for Session and Connection
+$PASSWORD = CONFIG[:password]
 
 EM.run do
   $0 = "emptyd"

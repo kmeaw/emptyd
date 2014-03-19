@@ -83,7 +83,9 @@ module Emptyd
           else
             @@count[self.key] = self
             @logger.debug "Created new conn: #{key}, quota = #{@@count.size}"
-            EM::Ssh.start(@host, @user, user_known_hosts_file: []) do |conn|
+            options = { :user_known_hosts_file => [] }
+            options[:password] = $PASSWORD if $PASSWORD
+            EM::Ssh.start(@host, @user, options) do |conn|
               conn.errback { |err| errback err }
               conn.on(:closed) { errback "closed" }
               conn.callback do |ssh|
@@ -311,6 +313,14 @@ module Emptyd
             : :done]}],
         :dead => @dead
       }
+    end
+
+    def write key, data
+      v = @running[key]
+      raise KeyError unless @keys.include?(key)
+      if v.respond_to? :send_data
+        v.send_data data
+      end
     end
 
     def << data
