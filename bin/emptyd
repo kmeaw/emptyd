@@ -48,6 +48,9 @@ class MyHttpServer < EM::Connection
           response.content = JSON.dump([nil,:dead,nil])
         else
           return session.queue.pop do |data|
+            if data[-1].kind_of? String
+              data[-1].force_encoding Encoding::UTF_8
+            end
             response.content = JSON.dump(data)
             response.send_response
           end
