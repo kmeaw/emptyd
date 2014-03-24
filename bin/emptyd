@@ -93,7 +93,7 @@ CONFIG = {
 %w{.emptyd.conf .empty.conf}.map{|name| File.expand_path("~/#{name}")}.each do |name|
   next unless File.exist? name
   File.open(name) do |file|
-    CONFIG.merge!(JSON.parse(file, :symbolize_names => true)) do |k, x, y| 
+    CONFIG.merge!(JSON.parse(file.read, :symbolize_names => true)) do |k, x, y| 
       x.respond_to?(:merge) ? x.merge(y) : y
     end
   end
