@@ -1,20 +1,17 @@
 # Emptyd
 
-TODO: Write a gem description
+Server counterpart of [emptyc](https://github.com/kmeaw/emptyc), which
+keeps track of SSH connections, pushes I/O over the wire, providing
+an HTTP-interface for emptyc.
 
 ## Installation
 
-Add this line to your application's Gemfile:
+    $ sudo gem install emptyd
 
-    gem 'emptyd'
+For Mac OS X Mavericks users: if you have problems compiling native
+extensions for eventmachine-le, try setting up ARCHFLAGS:
 
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
-
-    $ gem install emptyd
+    $ sudo env ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future gem install emptyd
 
 ## Usage
 
