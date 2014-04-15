@@ -371,15 +371,14 @@ module Emptyd
     end
 
     def terminate key
-      chan = @running[key]
-      conn = @connections[key]
+      return if @terminated[key]
+      chan = @running.delete key
+      conn = @connections.delete key
       chan.close if chan.respond_to? :close
       if conn
         callback conn, :close, "user"
         conn.unbind self 
       end
-      @running.delete key
-      @connections.delete key
       @terminated[key] = true
     end
 
