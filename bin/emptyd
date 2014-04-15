@@ -9,12 +9,14 @@ end
 
 require "emptyd"
 require 'evma_httpserver'
+require 'getoptlong'
 
 class MyHttpServer < EM::Connection
   include EM::HttpServer
 
-  def initialize(logger)
-    @logger = logger
+  def initialize(options)
+    @logger = options[:logger]
+    @cookie = options[:cookie]
   end
 
   def post_init
@@ -27,10 +29,20 @@ class MyHttpServer < EM::Connection
     port, ip = Socket.unpack_sockaddr_in(get_peername)
     @logger.info "#{ip}:#{port} #{@http_request_method} #{@http_path_info} #{@http_post_content.inspect}"
 
+    headers = Hash[@http_headers.split("\x00").map{|x| x.split(":",2)}.map{|x,y| [x.strip.downcase,y.lstrip]}]
+
     response = EM::DelegatedHttpResponse.new(self)
     response.status = 200
     response.content_type 'application/json'
     response.content = JSON.dump({ :okay => true })
+
+    if @cookie and headers['authorization'] != "Cookie: #{@cookie}"
+      @logger.warn "Bad cookie: #{headers['authorization']}"
+      response.status = 403
+      response.content = JSON.dump({ :cookie => :bad })
+      response.send_response
+      return
+    end
 
     begin
       case @http_path_info
@@ -102,10 +114,44 @@ end
 # XXX: We need a shared environment for Session and Connection
 $PASSWORD = CONFIG[:password]
 
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+  [ '--cookie', '-C', GetoptLong::REQUIRED_ARGUMENT ],
+)
+
+logger = Logger.new(STDOUT)
+options = { :logger => logger }
+options[:cookie] = CONFIG[:cookie]
+options[:port] = CONFIG[:port]
+
+opts.each do |opt, arg|
+  case opt
+  when '--help'
+    print <<-EOF
+#{$0} [OPTION]
+
+-h, --help:
+  show help
+
+-C x, --cookie x:
+  protect server with a cookie value
+
+-p x, --port x:
+  set port number
+
+    EOF
+    exit
+  when '--cookie'
+    options[:cookie] = arg
+  when '--port'
+    options[:port] = arg.to_i
+  end
+end
+
 EM.run do
   $0 = "emptyd"
-  logger = Logger.new(STDOUT)
-  EM.start_server CONFIG[:server], CONFIG[:server_port], MyHttpServer, logger
-  logger.info "Server started on #{CONFIG[:server]}, port #{CONFIG[:server_port]}."
+
+  EM.start_server CONFIG[:server], options[:port], MyHttpServer, options
+  logger.info "Server started on #{CONFIG[:server]}, port #{options[:port]}."
 end
 
