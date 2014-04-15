@@ -117,12 +117,13 @@ $PASSWORD = CONFIG[:password]
 opts = GetoptLong.new(
   [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
   [ '--cookie', '-C', GetoptLong::REQUIRED_ARGUMENT ],
+  [ '--port', '-p', GetoptLong::REQUIRED_ARGUMENT ],
 )
 
 logger = Logger.new(STDOUT)
 options = { :logger => logger }
 options[:cookie] = CONFIG[:cookie]
-options[:port] = CONFIG[:port]
+options[:port] = CONFIG[:server_port]
 
 opts.each do |opt, arg|
   case opt
