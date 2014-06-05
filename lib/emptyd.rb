@@ -93,6 +93,7 @@ module Emptyd
             @logger.debug "Created new conn: #{key}, quota = #{@@count.size}"
             options = { :user_known_hosts_file => [] }
             options[:password] = $PASSWORD if $PASSWORD
+            options[:forward_agent] = true if $FORWARD_AGENT
             EM::Ssh.start(@ip, @user, options) do |conn|
               conn.errback { |err| errback err }
               conn.on(:closed) { errback "closed" }
