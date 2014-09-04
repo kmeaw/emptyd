@@ -62,6 +62,7 @@ class MyHttpServer < EM::Connection
           return session.queue.pop do |data|
             if data[-1].kind_of? String
               data[-1].force_encoding Encoding::UTF_8
+              data[-1] = data[-1].encode(:invalid => :replace)
             end
             response.content = JSON.dump(data)
             response.send_response
