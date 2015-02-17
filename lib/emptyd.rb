@@ -91,7 +91,7 @@ module Emptyd
           else
             @@count[self.key] = self
             @logger.debug "Created new conn: #{key}, quota = #{@@count.size}"
-            options = { :user_known_hosts_file => [] }
+            options = { :user_known_hosts_file => [], :number_of_password_prompts => 0 }
             options[:password] = $PASSWORD if $PASSWORD
             options[:forward_agent] = true if $FORWARD_AGENT
             EM::Ssh.start(@ip, @user, options) do |conn|
@@ -142,22 +142,30 @@ module Emptyd
         end
       end
 
-      resolver = proc do
-        query = @@dns.submit_A @host
-        query.callback do |result|
-          @ip = result.sample
+      if @host =~ /^[0-9a-f:.]+$/i
+        p @host
+        resolver = proc do
+          @ip = @host
           starter[]
         end
-        query.errback do |err|
-          if err == :dns_error_nodata
-            query = @@dns.submit_AAAA @host
-            query.callback do |result|
-              @ip = result.sample
-              starter[]
+      else
+        resolver = proc do
+          query = @@dns.submit_AAAA @host
+          query.callback do |result|
+            @ip = result.sample
+            starter[]
+          end
+          query.errback do |err|
+            if err == :dns_error_nodata
+              query = @@dns.submit_A @host
+              query.callback do |result|
+                @ip = result.sample
+                starter[]
+              end
+              query.errback { |err| resfail[err] }
+            else
+              resfail[err]
             end
-            query.errback { |err| resfail[err] }
-          else
-            resfail[err]
           end
         end
       end

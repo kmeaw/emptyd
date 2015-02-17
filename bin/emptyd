@@ -100,7 +100,8 @@ end
 
 CONFIG = {
   :server => "::1",
-  :server_port => 53353
+  :server_port => 53353,
+  :log_level => "info"
 }
 
 %w{.emptyd.conf .empty.conf}.map{|name| File.expand_path("~/#{name}")}.each do |name|
@@ -123,6 +124,7 @@ opts = GetoptLong.new(
 )
 
 logger = Logger.new(STDOUT)
+logger.level = Logger.const_get(CONFIG[:log_level].upcase.to_sym)
 options = { :logger => logger }
 options[:cookie] = CONFIG[:cookie]
 options[:port] = CONFIG[:server_port]
