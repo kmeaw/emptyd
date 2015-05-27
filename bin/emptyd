@@ -11,6 +11,24 @@ require "emptyd"
 require 'evma_httpserver'
 require 'getoptlong'
 
+# Monkey patch for evma_httpserver 0.2.1
+class EventMachine::HttpResponse
+  def fixup_headers
+    if @content
+      @headers["Content-length"] = @content.bytesize
+    elsif @chunks
+      @headers["Transfer-encoding"] = "chunked"
+      # Might be nice to ENSURE there is no content-length header,
+      # but how to detect all the possible permutations of upper/lower case?
+    elsif @multiparts
+      @multipart_boundary = self.class.concoct_multipart_boundary
+      @headers["Content-type"] = "multipart/x-mixed-replace; boundary=\"#{@multipart_boundary}\""
+    else
+      @headers["Content-length"] = 0
+    end
+  end
+end
+
 class MyHttpServer < EM::Connection
   include EM::HttpServer
 
@@ -101,7 +119,7 @@ end
 CONFIG = {
   :server => "::1",
   :server_port => 53353,
-  :log_level => "info"
+  :log_level => "error"
 }
 
 %w{.emptyd.conf .empty.conf}.map{|name| File.expand_path("~/#{name}")}.each do |name|
