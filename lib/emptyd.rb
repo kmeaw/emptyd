@@ -12,7 +12,7 @@ module Emptyd
   class Connection
     attr_reader :key, :updated_at, :failed_at, :error
     EXPIRE_INTERVAL = 600 # 10min
-    MAX_CONNECTIONS = 100
+    MAX_CONNECTIONS = 500
     HAPPY_RATIO = 0.5
     @@connections = {}
     @@count = {}
@@ -177,7 +177,7 @@ module Emptyd
       @@count.delete self.key
       had_valid_conn = !!@conn
       @conn = nil
-      STDERR.puts "Connection to #{@key} is broken: #{err}"
+      @logger.warn "Connection to #{@key} is broken: #{err}"
       @error = err
       @failed_at = Time.now
       @connecting = false
@@ -250,13 +250,13 @@ module Emptyd
         if session.interactive?
           ch.request_pty do |ch, success|
             ch.exec cmd do |ch, success|
-              STDERR.puts "exec failed: #{cmd}" unless success
+              @logger.warn "exec failed: #{cmd}" unless success
               setup[ch]
             end
           end
         else
           ch.exec cmd do |ch, success|
-            STDERR.puts "exec failed: #{cmd}" unless success
+            @logger.warn "exec failed: #{cmd}" unless success
             setup[ch]
           end
         end
