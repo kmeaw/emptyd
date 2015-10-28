@@ -135,7 +135,7 @@ module Emptyd
 
       resfail = proc do |err|
         @error = err
-        @logger.error "DNS Error: #{err}"
+        @logger.error "DNS Error: #{err}: #{@key}"
         @failed_at = Time.now
         EM::Timer.new(rand(1..10)) do
           EM.next_tick resolver

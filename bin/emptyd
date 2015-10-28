@@ -82,7 +82,11 @@ class MyHttpServer < EM::Connection
               data[-1].force_encoding Encoding::UTF_8
               data[-1] = data[-1].encode(:invalid => :replace)
             end
-            response.content = JSON.dump(data)
+            begin
+              response.content = JSON.dump(data)
+            rescue Exception => e
+              response.content = JSON.dump(["emptyd",nil,"Unexpected error: #{e}"])
+            end
             response.send_response
           end
         end
