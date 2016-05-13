@@ -23,6 +23,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "eventmachine-le"
   spec.add_dependency "em-udns"
+  spec.add_dependency "net-ssh", "~> 3.0.0"
   spec.add_dependency "em-ssh"
   spec.add_dependency "eventmachine_httpserver"
   spec.add_dependency "json"
